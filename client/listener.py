@@ -7,13 +7,17 @@ from dotenv import load_dotenv
 
 
 load_dotenv()
-TOKEN = os.getenv("STUDY_TOKEM")  # get the token from the .env files
+token = os.getenv("STUDY_TOKEM")  # get the token from the .env files
+if token is None:
+    token = input("Paste your study token here: ")
+    with open(".env", "w") as f:
+        f.write(f"STUDY_TOKEN={token}\n")
 
 async def main():
     # Knock on the door your bot opened - same host+port it's listening on
     async with websockets.connect("ws://localhost:8765") as ws:
         print("Connected to the bot's websocket server!")
-        await ws.send(json.dumps({"token": "UhEU2g0k62tCbKytXTsH4w"}))  # send a message to the bot
+        await ws.send(json.dumps({"token": os.getenv("STUDY_TOKEN")}))  # send a message to the bot
 
         process = None #declare outside of if statements so we can use it later to stop program
 
