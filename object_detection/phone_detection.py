@@ -1,4 +1,5 @@
 import cv2
+from flask import json
 from ultralytics import YOLO
 
 class Detector:
@@ -8,7 +9,17 @@ class Detector:
 
     def activate_camera(self):
         model = YOLO('yolov8l.pt')  # loads pretrained model
-        cap = cv2.VideoCapture(0)
+        cap = None
+        for index in range(3):   # try camera indexes 0, 1, 2
+            candidate = cv2.VideoCapture(index)
+            if candidate.isOpened():
+                cap = candidate
+                break
+
+        if cap is None:
+            print("Could not find any working camera.")
+            return 
+        
         phone_class_id = None
         remote_class_id = None
         frames = 0
@@ -55,10 +66,17 @@ class Detector:
                 consecutive_frames = 0
 
             if consecutive_frames >= detection_threshold:  # if cellphone detected for 5 consecutive frames
-                print("return to studying")  # print message
+                print(json.dumps({"status": "phone"}), flush=True)
                 consecutive_frames = 0  # reset counter
+            else:
+                    print(json.dumps({"status": "focused"}), flush=True)
+
 
         cap.release()
 
     def deactivate_camera(self):
         self.activated = False
+
+if __name__ == "__main__":
+    detector = Detector()
+    detector.activate_camera()
