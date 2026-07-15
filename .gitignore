@@ -1,2 +1,5 @@
 venv/
 .env*.pt
+.env
+discord_bot/.env
+*.pt
