@@ -7,7 +7,7 @@ from dotenv import load_dotenv
 
 
 load_dotenv()
-token = os.getenv("STUDY_TOKEM")  # get the token from the .env files
+token = os.getenv("STUDY_TOKEN")  # get the token from the .env files
 if token is None:
     token = input("Paste your study token here: ")
     with open(".env", "w") as f:
