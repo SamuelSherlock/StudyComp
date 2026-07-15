@@ -3,3 +3,4 @@ venv/
 .env
 discord_bot/.env
 *.pt
+__pycache__/

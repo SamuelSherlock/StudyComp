@@ -3,6 +3,11 @@ import websockets     # the library for connecting to a websocket server
 import json
 import sys   # lets us find the exact python interpreter currently running this script
 import os    # lets us build a file path that works regardless of where you run this from
+from dotenv import load_dotenv
+
+
+load_dotenv()
+TOKEN = os.getenv("STUDY_TOKEM")  # get the token from the .env files
 
 async def main():
     # Knock on the door your bot opened - same host+port it's listening on
@@ -20,9 +25,11 @@ async def main():
           print("Starting the function now!")
          elif data.get("stop"):
           if process is not None:
-           process.terminate()  # terminate the background process
-           await process.wait()  # wait for the process to finish terminating
-           print("Function stopped successfully!")
+                try:
+                    process.terminate()
+                    print("Stopping the function now!")
+                except ProcessLookupError:
+                    print("Process had already stopped on its own.")
 
 
 
