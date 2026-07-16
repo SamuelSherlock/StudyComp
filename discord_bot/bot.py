@@ -21,6 +21,13 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 connections = {}  #list keeps track of all clients connected to the websocket server, so we can send messages to them later
 token_to_user = {} #stores all discord users tokens and their corresponding discord user id, so we can link them to the database later
+session_state = {} #stores the current state of each user's session
+user_stats = {} #individual user statistics
+POINTS_PER_MINUTE = 2  # points awarded per minute of study time
+STRIKE_PENALTY = 40  # points deducted for first strike
+STRIKE_LIMIT = 3  # maximum number of strikes before penalty is applied
+
+
 
 @bot.event
 async def on_ready(): #runs on start
@@ -46,12 +53,20 @@ async def handle_client(ws):
         await ws.send(json.dumps({"error": "Invalid token"}))  # send an error message back to the client
         return  # stop processing this connection
     connections[user_id] = ws  # store the websocket connection in the dictionary with the user ID as the key
-    await ws.send(json.dumps({"start": True}))
-    await asyncio.Future() #must await future messages otherwise it ends connection
+    session_state[user_id] = "idle"  # set the initial session state
+    user_stats.setdefault(user_id, {"points": 0, "strikes": 0})  # only initialize lifetime stats the first time we ever see this user
 
-    
-
-
+    try:
+        while True:
+            message = await ws.recv()  # wait for a message from the client
+            data = json.loads(message)  # load json data
+            # process incoming messages from the client
+    except websockets.ConnectionClosed:
+        pass
+    finally:
+        del connections[user_id]  # remove the connection from the dictionary
+        del session_state[user_id]  # remove the session state
+        
 
 @bot.command()
 async def link(ctx): #generate unique token to link each discord account to user in database
