@@ -17,8 +17,7 @@ async def main():
     # Knock on the door your bot opened - same host+port it's listening on
     async with websockets.connect("ws://localhost:8765") as ws:
         print("Connected to the bot's websocket server!")
-        await ws.send(json.dumps({"token": os.getenv("STUDY_TOKEN")}))  # send a message to the bot
-
+        await ws.send(json.dumps({"token": token}))  # send a message to the bot
         process = None #declare outside of if statements so we can use it later to stop program
 
         async for message in ws: #iterate over the connection, pausing here until the bot sends a message back

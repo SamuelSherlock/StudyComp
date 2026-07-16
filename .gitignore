@@ -1,6 +1,7 @@
 venv/
-.env*.pt
 .env
 discord_bot/.env
+discord_bot/lifetime_stats.json
 *.pt
 __pycache__/
+

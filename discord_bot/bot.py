@@ -3,6 +3,7 @@ from discord.ext import commands
 import os
 from dotenv import load_dotenv
 from object_detection.phone_detection import Detector
+from discord_bot.stats_functions import save_stats, load_stats, load_all_stats
 import asyncio
 import websockets
 import json
@@ -19,13 +20,15 @@ intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
 
+#constants
 connections = {}  #list keeps track of all clients connected to the websocket server, so we can send messages to them later
 token_to_user = {} #stores all discord users tokens and their corresponding discord user id, so we can link them to the database later
 session_state = {} #stores the current state of each user's session
-user_stats = {} #individual user statistics
 POINTS_PER_MINUTE = 2  # points awarded per minute of study time
 STRIKE_PENALTY = 40  # points deducted for first strike
 STRIKE_LIMIT = 3  # maximum number of strikes before penalty is applied
+challenge_message_id = None  # id of the active challenge signup message, or None if no challenge is open
+challenge_participants = set()  # discord user ids who have already been given a token for the current challenge
 
 
 
@@ -53,8 +56,8 @@ async def handle_client(ws):
         await ws.send(json.dumps({"error": "Invalid token"}))  # send an error message back to the client
         return  # stop processing this connection
     connections[user_id] = ws  # store the websocket connection in the dictionary with the user ID as the key
-    session_state[user_id] = "idle"  # set the initial session state
-    user_stats.setdefault(user_id, {"points": 0, "strikes": 0})  # only initialize lifetime stats the first time we ever see this user
+    session_state[user_id] = {"active": False, "points": 0, "strikes": 0}  # safe default until !startstudy actually begins a session
+
 
     try:
         while True:
@@ -69,18 +72,39 @@ async def handle_client(ws):
         
 
 @bot.command()
-async def link(ctx): #generate unique token to link each discord account to user in database
-    token = secrets.token_urlsafe(16)          # generate a random token
-    token_to_user[token] = ctx.author.id  # store the token and the user's Discord ID in a dictionary
-    await ctx.author.send(f"Your token is: {token}")
+async def startchallenge(ctx):  # post a signup message - anyone who reacts with 👍 gets a token
+    global challenge_message_id
+    msg = await ctx.send("React with 👍 to join the challenge!")
+    await msg.add_reaction("👍")  # bot adds the reaction itself so users just have to click it
+    challenge_message_id = msg.id  # remember which message's reactions count for this challenge
+    challenge_participants.clear()  # fresh signup list for this new challenge
 
-    pass
+
+@bot.event
+async def on_raw_reaction_add(payload):  # fires for every reaction added anywhere the bot can see
+    if payload.message_id != challenge_message_id:
+        return  # not a reaction on the current challenge message
+    if str(payload.emoji) != "👍":
+        return  # wrong emoji
+    if payload.user_id == bot.user.id:
+        return  # ignore the bot's own reaction added in !startchallenge
+    if payload.user_id in challenge_participants:
+        return  # this user already got a token for this challenge
+
+    user = bot.get_user(payload.user_id) or await bot.fetch_user(payload.user_id)  # get_user checks cache first, fetch_user asks Discord directly
+
+    token = secrets.token_urlsafe(16)  # generate a random token
+    token_to_user[token] = user.id  # store the token and the user's Discord ID in a dictionary
+    challenge_participants.add(user.id)
+    await user.send(f"Your token is: {token}")
 
 
 @bot.command()
 async def startstudy(ctx): #user starts studying, activate camera
     #use discord userid to retrieve the connection for that user
-    ws = connections[ctx.message.author.id]
+    user_id = ctx.message.author.id
+    ws = connections[user_id]
+    session_state[user_id] = {"active": True, "points": 0, "strikes": 0}  # this is the real start of a session, not the start of the websocket connection
     await ws.send(json.dumps({"start": True}))  # send a message to the user's listener to start the function
     await ctx.message.channel.send("Process started successfully! 🚀")
 
@@ -88,19 +112,47 @@ async def startstudy(ctx): #user starts studying, activate camera
 
 @bot.command()
 async def endsession(ctx):
-     ws = connections[ctx.message.author.id]
+     user_id = ctx.message.author.id
+     ws = connections[user_id]
      await ws.send(json.dumps({"stop": True}))  # send a message to the user's listener to stop the function
-     await ctx.message.channel.send("Process ended successfully! 🚀")
+
+     session = session_state[user_id]
+     lifetime = load_stats(user_id)  # read this user's current lifetime totals from disk
+     new_points = lifetime["points"] + session["points"]  # fold this session's totals into the lifetime totals
+     new_strikes = lifetime["strikes"] + session["strikes"]
+     save_stats(user_id, new_points, new_strikes)  # persist the updated lifetime totals back to disk
+
+     await ctx.message.channel.send(
+         f"Session complete! You earned {session['points']} points with {session['strikes']} strikes this session."
+     )
+
+     session_state[user_id] = {"active": False, "points": 0, "strikes": 0}  # reset for next time
 
 
 @bot.command()
-async def mypoints(ctx):
-    pass
+async def stats(ctx, member: discord.Member = None):
+    target = member or ctx.author
+    lifetime = load_stats(target.id)
+    await ctx.send(f"{target.mention} has {lifetime['points']} points and {lifetime['strikes']} strikes.")
+
 
 
 @bot.command()
 async def leaderboard(ctx):
-    pass
+    all_stats = load_all_stats()
+    if not all_stats:
+        await ctx.send("No stats available.")
+        return
+
+    # Sort by points descending, strikes ascending as tiebreaker
+    ranked = sorted(all_stats.items(), key=lambda entry: (-entry[1]["points"], entry[1]["strikes"]))
+
+    lines = ["Leaderboard:"]
+    for rank, (user_id, stats_data) in enumerate(ranked, start=1):
+        user = bot.get_user(user_id) or await bot.fetch_user(user_id)
+        lines.append(f"{rank}. {user.name}: {stats_data['points']} points, {stats_data['strikes']} strikes")
+
+    await ctx.send("\n".join(lines))
 
 
 bot.run(TOKEN)
