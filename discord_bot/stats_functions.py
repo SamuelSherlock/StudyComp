@@ -2,11 +2,12 @@
 
 import os
 import json
+import time
 
 STATS_PATH = "discord_bot/lifetime_stats.json"
 
 
-def load_stats(user_id):
+def load_stats(user_id, ):
     if os.path.exists(STATS_PATH):
         with open(STATS_PATH, "r") as f:
             stats = json.load(f)
@@ -33,3 +34,10 @@ def save_stats(user_id, points, strikes):
 
     with open(STATS_PATH, "w") as f:
         json.dump(stats, f)
+
+def pause_session(session):
+    if session["absent_since"] is None:
+      session["absent_since"] = time.time()  # mark the time when the user was first detected as absent
+    if session["absent_since"] is not None:
+      session["total_absent_seconds"] += time.time() - session["absent_since"] #add current time since absent to total
+      session["absent_since"] = None

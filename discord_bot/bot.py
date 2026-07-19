@@ -4,7 +4,7 @@ import os
 from dotenv import load_dotenv
 from requests import session
 from object_detection.phone_detection import Detector
-from discord_bot.stats_functions import save_stats, load_stats, load_all_stats
+from discord_bot.stats_functions import save_stats, load_stats, load_all_stats, pause_session
 import asyncio
 import websockets
 import json
@@ -54,14 +54,7 @@ def apply_event(user_id, status):
         pause_session(session)  # resume the session if a person is detected
            
    
-def pause_session(session):
-    if session["absent_since"] is None:
-      session["absent_since"] = time.time()  # mark the time when the user was first detected as absent
-    if session["absent_since"] is not None:
-      session["total_absent_seconds"] += time.time() - session["absent_since"] #add current time since absent to total
-      session["absent_since"] = None
 
-    
 
     
 
