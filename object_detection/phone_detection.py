@@ -1,6 +1,9 @@
 import cv2
-from flask import json
+import json
 from ultralytics import YOLO
+import time
+
+MAX_ABSENCE_SECONDS = 10  # maximum time allowed without detecting a person before flagging as absent
 
 class Detector:
 
@@ -22,16 +25,21 @@ class Detector:
         
         phone_class_id = None
         remote_class_id = None
+        person_class_id = None
         frames = 0
         consecutive_frames = 0
         detection_threshold = 5
         self.activated = True
-
+        present_last_frame = True
+        person_last_seen = time.time()  # initialize the last seen time for person detection
+        absence_reported = False  # flag to track if absence has been reported
         for i, name in model.names.items():  # loop through each object and its index to find cellphone index
             if name == "cell phone":
                 phone_class_id = i
             elif name == "remote":
                 remote_class_id = i
+            elif name == "person":
+                person_class_id = i
 
         while self.activated:
             ret, frame = cap.read()
@@ -44,6 +52,7 @@ class Detector:
             # x2 y2 is bottom right corner
 
             phone_detected_this_frame = False
+            person_detected_this_frame = False
 
             for box in results.boxes:  # runs everytime object detected
                 object_id = int(box.cls[0])  # extract objects class id
@@ -59,19 +68,31 @@ class Detector:
 
                 if (object_id == phone_class_id or object_id == remote_class_id) and (confidence > 0.5 and object_ratio > 0.05):
                     phone_detected_this_frame = True
+                if object_id == person_class_id and (confidence > 0.5 and object_ratio > 0.1):
+                    person_detected_this_frame = True
+
 
             if phone_detected_this_frame:
                 consecutive_frames += 1
             else:
                 consecutive_frames = 0
 
-            if consecutive_frames >= detection_threshold:  # if cellphone detected for 5 consecutive frames
-                print(json.dumps({"status": "phone"}), flush=True)
-                consecutive_frames = 0  # reset counter
+          
+            if person_detected_this_frame:
+                if absence_reported:   # they just came back, after we'd already flagged them absent
+                    print(json.dumps({"status": "person_detected"}), flush=True)
+                    absence_reported = False
+                person_last_seen = time.time()
             else:
-                    print(json.dumps({"status": "focused"}), flush=True)
-
-
+             if not absence_reported and (time.time() - person_last_seen > MAX_ABSENCE_SECONDS):
+                try:
+                    print(json.dumps({"status": "no_person"}), flush=True)
+                    absence_reported = True
+                except BrokenPipeError:
+                    break   # listener's gone, no point continuing
+                             
+               
+            
         cap.release()
 
     def deactivate_camera(self):
