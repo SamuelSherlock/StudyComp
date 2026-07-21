@@ -6,11 +6,13 @@ import os    # lets us build a file path that works regardless of where you run 
 from dotenv import load_dotenv
 
 
-load_dotenv()
+ENV_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")  # always client/.env, no matter where this is run from
+
+load_dotenv(ENV_PATH)
 token = os.getenv("STUDY_TOKEN")  # get the token from the .env files
 if token is None:
     token = input("Paste your study token here: ")
-    with open(".env", "w") as f:
+    with open(ENV_PATH, "w") as f:
         f.write(f"STUDY_TOKEN={token}\n")
 
 

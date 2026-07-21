@@ -4,7 +4,7 @@ import os
 from dotenv import load_dotenv
 from requests import session
 from object_detection.phone_detection import Detector
-from discord_bot.stats_functions import save_stats, load_stats, load_all_stats, pause_session
+from discord_bot.stats_functions import load_stats, load_all_stats, pause_session, load_tokens, save_tokens, finalize_session
 import asyncio
 import websockets
 import json
@@ -24,7 +24,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 #constants
 connections = {}  #list keeps track of all clients connected to the websocket server, so we can send messages to them later
-token_to_user = {} #stores all discord users tokens and their corresponding discord user id, so we can link them to the database later
+token_to_user = load_tokens() #stores all discord users tokens and their corresponding discord user id, loaded from disk so tokens survive bot restarts
 session_state = {} #stores the current state of each user's session
 POINTS_PER_MINUTE = 2  # points awarded per minute of study time
 STRIKE_PENALTY = 40  # points deducted for first strike
@@ -41,11 +41,11 @@ def apply_event(user_id, status):
     if not session["active"]:
         return  # ignore events from users who aren't actively studying
 
-    if status == "phone":
-        session["strikes"] += 1
-        if session["strikes"] >= STRIKE_LIMIT:
-            session["points"] = max(0, session["points"] - STRIKE_PENALTY) #if penalty puts them into negatives, choose 0 instead
-            session["strikes"] = 0  # reset strikes after penalty
+    if status == "phone" and not session["paused"]:
+        session["strike_counter"] += 1  # counts toward the next penalty, resets every 3 regardless of outcome
+        if session["strike_counter"] >= STRIKE_LIMIT:
+            session["strike_counter"] = 0  # reset the counter, penalty group completed
+            session["strikes"] += 1  # one more completed penalty group; points deducted for this in !endstudy, once real points exist
     if status == "no_person":
         print('No person detected!')  # for debugging
         pause_session(session)  # pause the session if no person is detected
@@ -97,6 +97,13 @@ async def handle_client(ws):
         pass
     finally:
         del connections[user_id]  # remove the connection from the dictionary
+        session = session_state.get(user_id)
+        if session is not None and session["active"]:
+            finalize_session(user_id, session, POINTS_PER_MINUTE, STRIKE_PENALTY)  # listener dropped mid-session, save what was earned so far
+            user = bot.get_user(user_id) or await bot.fetch_user(user_id)
+            await user.send(
+                f"Crash detected, stats saved! Your session stats are {session['points']:.0f} points with {session['strikes']} strikes."
+            )
         del session_state[user_id]  # remove the session state
         
 
@@ -124,6 +131,7 @@ async def on_raw_reaction_add(payload):  # fires for every reaction added anywhe
 
     token = secrets.token_urlsafe(16)  # generate a random token
     token_to_user[token] = user.id  # store the token and the user's Discord ID in a dictionary
+    save_tokens(token_to_user)  # persist to disk so this token still works after a bot restart
     challenge_participants.add(user.id)
     await user.send(f"Your token is: {token}")
 
@@ -136,7 +144,7 @@ async def startstudy(ctx): #user starts studying, activate camera
     if ws is None:
         await ctx.message.channel.send("Your listener isn't connected. Make sure it's running and try again.")
         return
-    session_state[user_id] = {"active": True, "start_time": time.time(), "total_absent_seconds": 0, "absent_since": None, "paused": False, "points": 0, "strikes": 0}
+    session_state[user_id] = {"active": True, "start_time": time.time(), "total_absent_seconds": 0, "absent_since": None, "paused": False, "points": 0, "strikes": 0, "strike_counter": 0}
     await ws.send(json.dumps({"start": True}))  # send a message to the user's listener to start the function
     await ctx.message.channel.send("Process started successfully! 🚀")
 
@@ -145,15 +153,13 @@ async def startstudy(ctx): #user starts studying, activate camera
 @bot.command()
 async def endstudy(ctx):
      user_id = ctx.message.author.id
-     ws = connections[user_id]
+     ws = connections.get(user_id)
+     session = session_state.get(user_id)
+     if ws is None or session is None or not session.get("active"):
+         await ctx.message.channel.send("You don't have an active study session to end.")
+         return
      await ws.send(json.dumps({"stop": True}))  # send a message to the user's listener to stop the function
-     session = session_state[user_id]
-     time_passed = (time.time() - session["start_time"]) - session["total_absent_seconds"]  # total time spent studying, minus any time the user was absent
-     session["points"] += (time_passed / 60) * POINTS_PER_MINUTE  # add points for the time spent studying
-     lifetime = load_stats(user_id)  # read this user's current lifetime totals from disk
-     new_points = lifetime["points"] + session["points"]  # fold this session's totals into the lifetime totals
-     new_strikes = lifetime["strikes"] + session["strikes"]
-     save_stats(user_id, new_points, new_strikes)  # persist the updated lifetime totals back to disk
+     finalize_session(user_id, session, POINTS_PER_MINUTE, STRIKE_PENALTY)
 
      await ctx.message.channel.send(
          f"Session complete! You earned {session['points']:.0f} points with {session['strikes']} strikes this session."
@@ -166,7 +172,7 @@ async def endstudy(ctx):
 async def stats(ctx, member: discord.Member = None):
     target = member or ctx.author
     lifetime = load_stats(target.id)
-    await ctx.send(f"{target.mention} has {lifetime['points']} points and {lifetime['strikes']} strikes.")
+    await ctx.send(f"{target.mention} has {lifetime['points']:.0f} points and {lifetime['strikes']} strikes.")
 
 
 
@@ -191,7 +197,7 @@ async def leaderboard(ctx):
 @bot.command()
 async def pause(ctx):
     current_time = time.strftime("%I:%M %p")
-    session = session_state[ctx.author.id]
+    session = session_state.get(ctx.author.id)
 
     if  session is None or not session["active"]:
         await ctx.send("You don't have an active study session to pause.")

@@ -33,6 +33,7 @@ class Detector:
         present_last_frame = True
         person_last_seen = time.time()  # initialize the last seen time for person detection
         absence_reported = False  # flag to track if absence has been reported
+        phone_reported = False  # flag to track if the current phone sighting has already been reported
         for i, name in model.names.items():  # loop through each object and its index to find cellphone index
             if name == "cell phone":
                 phone_class_id = i
@@ -76,8 +77,15 @@ class Detector:
                 consecutive_frames += 1
             else:
                 consecutive_frames = 0
+                phone_reported = False
 
-          
+            if consecutive_frames >= detection_threshold and not phone_reported:
+                try:
+                    print(json.dumps({"status": "phone"}), flush=True)
+                    phone_reported = True
+                except BrokenPipeError:
+                    break
+
             if person_detected_this_frame:
                 if absence_reported:   # they just came back, after we'd already flagged them absent
                     print(json.dumps({"status": "person_detected"}), flush=True)
