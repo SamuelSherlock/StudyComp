@@ -106,6 +106,39 @@ async def handle_client(ws):
             )
         del session_state[user_id]  # remove the session state
         
+#command to create channels and roles and then assign permissions upon setup
+@commands.has_permissions(administrator=True)
+@bot.command()
+async def setup(ctx):
+    existing = discord.utils.get(ctx.guild.categories,name="StudyComp")
+    if existing is not None:
+        await ctx.send("Category already exists, please delete it first then retry command.")
+        return
+    role_existing = discord.utils.get(ctx.guild.roles, name="Challenger")
+    if role_existing is None:
+        studycomp_role = await ctx.guild.create_role(name="Challenger")
+    else:
+        studycomp_role = role_existing
+    overwrites = {
+        ctx.guild.default_role: discord.PermissionOverwrite(view_channel=False),
+        studycomp_role: discord.PermissionOverwrite(view_channel=True)
+    }
+    
+    overwrites_special = {
+        ctx.guild.default_role: discord.PermissionOverwrite(view_channel=False, send_messages=False),
+        studycomp_role: discord.PermissionOverwrite(view_channel=True, send_messages=False),
+    }
+
+
+    category = await ctx.guild.create_category("StudyComp", overwrites=overwrites)
+
+    await ctx.guild.create_text_channel("Study-Announcements", category=category, overwrites=overwrites_special)
+    await ctx.guild.create_text_channel("Leaderboard", category=category, overwrites=overwrites_special)
+    await ctx.guild.create_text_channel("Study-Chat", category=category)
+   await ctx.guild.create_text_channel("Study-Commands", category=category)
+    await ctx.guild.create_voice_channel("Study-Voice", category=category)
+    
+
 
 @bot.command()
 async def startchallenge(ctx):  # post a signup message - anyone who reacts with 👍 gets a token
