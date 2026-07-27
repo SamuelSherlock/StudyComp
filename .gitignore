@@ -3,6 +3,9 @@ venv/
 discord_bot/.env
 discord_bot/lifetime_stats.json
 discord_bot/study_tokens.json
+discord_bot/challenges_state.json
+discord_bot/comp_stats.json
+discord_bot/casual_stats.json
 *.pt
 __pycache__/
 
