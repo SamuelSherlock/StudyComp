@@ -6,6 +6,8 @@ from requests import session
 from object_detection.phone_detection import Detector
 from discord_bot.stats_functions import load_stats, load_all_stats, save_stats, pause_session, load_tokens, save_tokens, finalize_session, STATS_PATH, clear_stats, load_challenges_state, save_challenges_state
 from discord_bot.leaderboard_ui import build_leaderboard_embed, LeaderboardView
+from discord_bot.help_ui import create_help_embed, HelpView
+
 
 import asyncio
 import websockets
@@ -22,7 +24,7 @@ detector = Detector()
 intents = discord.Intents.default()
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents, help_command=None)
 
 #constants
 connections = {}  #list keeps track of all clients connected to the websocket server, so we can send messages to them later
@@ -155,7 +157,12 @@ async def setup(ctx):
     await ctx.guild.create_text_channel("Study-Chat", category=category)
     await ctx.guild.create_text_channel("Study-Commands", category=category)
     await ctx.guild.create_voice_channel("Study-Voice", category=category)
-    
+
+@bot.command()
+async def help(ctx):
+    embed = create_help_embed(0)
+    view = HelpView(page=0)
+    await ctx.send(embed=embed, view=view)
 
 
 @bot.command()
